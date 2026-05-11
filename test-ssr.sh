@@ -9,7 +9,7 @@
 NXIS_CLIENT_ID=nxis_cid_YLh9ZS5MBhGVaBiL
 NXIS_CLIENT_SECRET=nxis_sec_IUQnkG3ebgaY8b5MmIyBZ6tLNeip8g9V
 NXIS_SITE_ID="69f110acd81d7091c5ad2f80"
-PAGE_URI="https://arksers.space/the-book/"
+PAGE_URI="https://arksers.space/services/"
 
 echo "--------------------------------------------------------"
 echo "Step 1: Requesting OAuth Access Token using Client Credentials"

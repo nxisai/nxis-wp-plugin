@@ -45,6 +45,11 @@ class Nxis_AI
         add_action('admin_menu', array($this, 'add_settings_page'));
         add_action('admin_init', array($this, 'register_settings'));
         add_action('wp_ajax_nxis_test_connection', array($this, 'ajax_test_connection'));
+        
+        // Pages table hooks
+        add_filter('manage_pages_columns', array($this, 'add_nxis_columns'));
+        add_action('manage_pages_custom_column', array($this, 'render_nxis_column'), 10, 2);
+        add_action('admin_footer-edit.php', array($this, 'add_pages_table_script'));
 
         // Frontend hooks
         add_action('wp_head', array($this, 'inject_structured_data'), 5); // Run early in wp_head
@@ -240,6 +245,90 @@ class Nxis_AI
     }
 
     /**
+     * Add Nxis AI column to the Pages table
+     */
+    public function add_nxis_columns($columns)
+    {
+        $columns['nxis_ssr'] = 'Nxis SSR';
+        return $columns;
+    }
+
+    /**
+     * Render the Nxis AI column in the Pages table
+     */
+    public function render_nxis_column($column, $post_id)
+    {
+        if ($column === 'nxis_ssr') {
+            // Ensure the URI uses https for the API and cache key
+            $raw_uri = get_permalink($post_id);
+            if (!preg_match('~^https?://~i', $raw_uri)) {
+                if (strpos($raw_uri, '/') !== 0) {
+                    $raw_uri = '/' . $raw_uri;
+                }
+                $raw_uri = home_url($raw_uri);
+            }
+            $uri = set_url_scheme($raw_uri, 'https');
+            $cache_key = 'nxis_ssr_' . md5($uri);
+            $is_cached = get_transient($cache_key) !== false;
+
+            if ($is_cached) {
+                echo '<span style="display: inline-block; padding: 3px 8px; background: #d4edda; color: #155724; border-radius: 3px; font-size: 11px; margin-bottom: 5px; font-weight: 500;">Cached</span><br>';
+            } else {
+                echo '<span style="display: inline-block; padding: 3px 8px; background: #e2e3e5; color: #383d41; border-radius: 3px; font-size: 11px; margin-bottom: 5px; font-weight: 500;">Not Cached</span><br>';
+            }
+
+            echo '<button type="button" class="button button-small nxis-test-btn" data-uri="' . esc_attr($uri) . '">Test API</button>';
+        }
+    }
+
+    /**
+     * Add inline script for the Pages table Test API button
+     */
+    public function add_pages_table_script()
+    {
+        global $typenow;
+        if ($typenow !== 'page') {
+            return;
+        }
+        ?>
+        <script type="text/javascript">
+        jQuery(document).ready(function($) {
+            $('.nxis-test-btn').on('click', function(e) {
+                e.preventDefault();
+                var btn = $(this);
+                var uri = btn.data('uri');
+                var originalText = btn.text();
+
+                btn.text('Testing...').prop('disabled', true);
+
+                $.post(ajaxurl, {
+                    action: 'nxis_test_connection',
+                    nonce: '<?php echo wp_create_nonce("nxis_test_nonce"); ?>',
+                    uri: uri
+                }, function(response) {
+                    btn.text(originalText).prop('disabled', false);
+                    if (response.success) {
+                        console.log('Nxis SSR Response:', response.data);
+                        var reqStr = response.data.request ? "Endpoint: " + response.data.request.endpoint + "\n\n" : "";
+                        var resStr = JSON.stringify(response.data.data, null, 2).substring(0, 300) + '...';
+                        alert("Success! Data fetched.\n\n--- Request ---\n" + reqStr + "--- Response ---\n" + resStr + "\n\n(See browser console for full JSON)");
+                    } else {
+                        console.error('Nxis SSR Error:', response.data);
+                        var reqStr = response.data.request ? "Endpoint: " + response.data.request.endpoint + "\n\n" : "";
+                        var errorMsg = response.data.error || response.data;
+                        alert("Error: " + errorMsg + "\n\n--- Request ---\n" + reqStr);
+                    }
+                }).fail(function(xhr, status, error) {
+                    btn.text(originalText).prop('disabled', false);
+                    alert('AJAX Error: ' + error);
+                });
+            });
+        });
+        </script>
+        <?php
+    }
+
+    /**
      * Render Admin Page
      */
     public function render_settings_page()
@@ -302,10 +391,21 @@ class Nxis_AI
                     
                     var output = '';
                     if (response.data) {
+                        if (response.data.request) {
+                            output += "--- Request Details ---\n";
+                            output += "Endpoint: " + response.data.request.endpoint + "\n";
+                            output += "Method: " + response.data.request.method + "\n";
+                            output += "Headers: " + JSON.stringify(response.data.request.headers, null, 2) + "\n";
+                            output += "Body: " + (response.data.request.body ? JSON.stringify(response.data.request.body, null, 2) : "None (GET request)") + "\n\n";
+                            output += "--- Response Data ---\n";
+                        }
+                        
                         if (typeof response.data === 'string') {
-                            output = response.data;
+                            output += response.data;
                         } else {
-                            output = JSON.stringify(response.data, null, 2);
+                            var resData = Object.assign({}, response.data);
+                            delete resData.request; // remove request from the raw response view
+                            output += JSON.stringify(resData, null, 2);
                         }
                     } else {
                         output = 'Unknown error occurred.';
@@ -334,10 +434,19 @@ class Nxis_AI
             wp_send_json_error('Unauthorized');
         }
 
-        $uri = isset($_POST['uri']) ? esc_url_raw($_POST['uri']) : '';
+        $uri = isset($_POST['uri']) ? sanitize_text_field(wp_unslash($_POST['uri'])) : '';
         if (empty($uri)) {
             wp_send_json_error('URI is required.');
         }
+
+        // If the user entered a relative path, prepend the site URL
+        if (!preg_match('~^https?://~i', $uri)) {
+            if (strpos($uri, '/') !== 0) {
+                $uri = '/' . $uri;
+            }
+            $uri = home_url($uri);
+        }
+        $uri = set_url_scheme($uri, 'https');
 
         $options = get_option('nxis_ai_settings');
         if (empty($options['client_id']) || empty($options['client_secret']) || empty($options['site_id'])) {
@@ -370,9 +479,20 @@ class Nxis_AI
         
         $decoded = json_decode($body, true);
         
+        $request_info = array(
+            'endpoint' => $url,
+            'method' => 'GET',
+            'headers' => array(
+                'Authorization' => 'Bearer [REDACTED]',
+                'Content-Type' => 'text/plain'
+            ),
+            'body' => null // GET request has no body
+        );
+
         if ($code !== 200) {
             wp_send_json_error(array(
                 'error' => "API Error (Code: $code)",
+                'request' => $request_info,
                 'response' => $decoded ? $decoded : $body
             ));
         }
@@ -380,11 +500,15 @@ class Nxis_AI
         if (isset($decoded['data']) && is_array($decoded['data']) && !empty($decoded['data'])) {
             wp_send_json_success(array(
                 'message' => 'Successfully fetched SSR data.',
+                'request' => $request_info,
                 'data' => $decoded['data']
             ));
         }
 
-        wp_send_json_error('No SSR data returned for this URI.');
+        wp_send_json_error(array(
+            'error' => 'No SSR data returned for this URI.',
+            'request' => $request_info
+        ));
     }
 
     /**
