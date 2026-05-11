@@ -44,6 +44,7 @@ class Nxis_AI
         // Admin hooks
         add_action('admin_menu', array($this, 'add_settings_page'));
         add_action('admin_init', array($this, 'register_settings'));
+        add_action('wp_ajax_nxis_test_connection', array($this, 'ajax_test_connection'));
 
         // Frontend hooks
         add_action('wp_head', array($this, 'inject_structured_data'), 5); // Run early in wp_head
@@ -253,8 +254,137 @@ class Nxis_AI
                 submit_button();
                 ?>
             </form>
+            
+            <hr style="margin-top: 30px; margin-bottom: 30px;">
+            <h2>Test Connection</h2>
+            <p>Test your Nxis SSR integration for a specific page. This will use your <strong>saved</strong> credentials.</p>
+            <table class="form-table">
+                <tr>
+                    <th scope="row"><label for="nxis_test_uri">Page URI</label></th>
+                    <td>
+                        <input type="text" id="nxis_test_uri" class="regular-text" placeholder="https://example.com/about" />
+                        <button type="button" id="nxis_test_button" class="button button-secondary">Test Connection</button>
+                        <span class="spinner" id="nxis_test_spinner" style="float: none; margin-top: 0;"></span>
+                        <p class="description">Enter the full URI of a page to test fetching data.</p>
+                    </td>
+                </tr>
+            </table>
+            <div id="nxis_test_result" style="margin-top: 15px; display: none; padding: 15px; background: #fff; border: 1px solid #ccd0d4; border-left: 4px solid #00a0d2;">
+                <h3 style="margin-top:0;">Response:</h3>
+                <pre id="nxis_test_output" style="white-space: pre-wrap; word-wrap: break-word;"></pre>
+            </div>
         </div>
+
+        <script type="text/javascript">
+        jQuery(document).ready(function($) {
+            $('#nxis_test_button').on('click', function() {
+                var uri = $('#nxis_test_uri').val();
+                if (!uri) {
+                    alert('Please enter a Page URI to test.');
+                    return;
+                }
+
+                $('#nxis_test_button').prop('disabled', true);
+                $('#nxis_test_spinner').addClass('is-active');
+                $('#nxis_test_result').hide();
+
+                $.post(ajaxurl, {
+                    action: 'nxis_test_connection',
+                    nonce: '<?php echo wp_create_nonce("nxis_test_nonce"); ?>',
+                    uri: uri
+                }, function(response) {
+                    $('#nxis_test_button').prop('disabled', false);
+                    $('#nxis_test_spinner').removeClass('is-active');
+                    $('#nxis_test_result').show();
+                    
+                    var borderColor = response.success ? '#46b450' : '#dc3232';
+                    $('#nxis_test_result').css('border-left-color', borderColor);
+                    
+                    var output = '';
+                    if (response.data) {
+                        if (typeof response.data === 'string') {
+                            output = response.data;
+                        } else {
+                            output = JSON.stringify(response.data, null, 2);
+                        }
+                    } else {
+                        output = 'Unknown error occurred.';
+                    }
+                    $('#nxis_test_output').text(output);
+                }).fail(function(xhr, status, error) {
+                    $('#nxis_test_button').prop('disabled', false);
+                    $('#nxis_test_spinner').removeClass('is-active');
+                    $('#nxis_test_result').show().css('border-left-color', '#dc3232');
+                    $('#nxis_test_output').text('AJAX Error: ' + error);
+                });
+            });
+        });
+        </script>
         <?php
+    }
+
+    /**
+     * Handle connection testing via AJAX
+     */
+    public function ajax_test_connection()
+    {
+        check_ajax_referer('nxis_test_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Unauthorized');
+        }
+
+        $uri = isset($_POST['uri']) ? esc_url_raw($_POST['uri']) : '';
+        if (empty($uri)) {
+            wp_send_json_error('URI is required.');
+        }
+
+        $options = get_option('nxis_ai_settings');
+        if (empty($options['client_id']) || empty($options['client_secret']) || empty($options['site_id'])) {
+            wp_send_json_error('Please save your Client ID, Client Secret, and Site ID before testing.');
+        }
+
+        $token = $this->get_access_token($options);
+        if (!$token) {
+            wp_send_json_error('Failed to retrieve OAuth token. Please check your Client ID and Secret.');
+        }
+
+        $url = $this->api_host . '/v1/nxis:ssr?uri=' . urlencode($uri) . '&site_id=' . urlencode($options['site_id']);
+
+        $args = array(
+            'headers' => array(
+                'Authorization' => 'Bearer ' . $token,
+                'Content-Type' => 'text/plain'
+            ),
+            'timeout' => 10
+        );
+
+        $response = wp_remote_get($url, $args);
+
+        if (is_wp_error($response)) {
+            wp_send_json_error('HTTP Request Error: ' . $response->get_error_message());
+        }
+
+        $code = wp_remote_retrieve_response_code($response);
+        $body = wp_remote_retrieve_body($response);
+        
+        $decoded = json_decode($body, true);
+        
+        if ($code !== 200) {
+            wp_send_json_error(array(
+                'error' => "API Error (Code: $code)",
+                'response' => $decoded ? $decoded : $body
+            ));
+        }
+
+        if (isset($decoded['data']) && is_array($decoded['data']) && !empty($decoded['data'])) {
+            wp_send_json_success(array(
+                'message' => 'Successfully fetched SSR data.',
+                'data' => $decoded['data']
+            ));
+        }
+
+        wp_send_json_error('No SSR data returned for this URI.');
     }
 
     /**
