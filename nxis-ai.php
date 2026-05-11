@@ -44,106 +44,9 @@ class Nxis_AI
         // Admin hooks
         add_action('admin_menu', array($this, 'add_settings_page'));
         add_action('admin_init', array($this, 'register_settings'));
-        add_action('admin_init', array($this, 'handle_oauth_callback'));
-        add_action('admin_init', array($this, 'handle_disconnect'));
-        add_action('admin_notices', array($this, 'display_admin_notices'));
 
         // Frontend hooks
         add_action('wp_head', array($this, 'inject_structured_data'), 5); // Run early in wp_head
-    }
-
-    /**
-     * Display admin notices
-     */
-    public function display_admin_notices()
-    {
-        if (isset($_GET['page']) && $_GET['page'] === 'nxis-ai') {
-            if (isset($_GET['nxis_connected'])) {
-                echo '<div class="notice notice-success is-dismissible"><p>Successfully connected to Nxis AI!</p></div>';
-            }
-            if (isset($_GET['nxis_disconnected'])) {
-                echo '<div class="notice notice-success is-dismissible"><p>Disconnected from Nxis AI.</p></div>';
-            }
-            if (isset($_GET['nxis_error'])) {
-                echo '<div class="notice notice-error is-dismissible"><p>Failed to connect to Nxis AI. Please try again.</p></div>';
-            }
-        }
-    }
-
-    /**
-     * Handle OAuth Callback
-     */
-    public function handle_oauth_callback()
-    {
-        if (isset($_GET['page']) && $_GET['page'] === 'nxis-ai' && isset($_GET['code'])) {
-            $code = sanitize_text_field($_GET['code']);
-            
-            // Mock exchange for testing
-            if ($code === 'test_123') {
-                $options = get_option('nxis_ai_settings', array());
-                $options['client_id'] = 'mock_client_id';
-                $options['client_secret'] = 'mock_client_secret';
-                $options['site_id'] = 'mock_site_id';
-                update_option('nxis_ai_settings', $options);
-                wp_redirect(admin_url('options-general.php?page=nxis-ai&nxis_connected=1'));
-                exit;
-            }
-
-            $url = $this->api_host . '/v1/oauth/exchange';
-            $args = array(
-                'body' => array(
-                    'code' => $code,
-                ),
-                'timeout' => 15
-            );
-            $response = wp_remote_post($url, $args);
-            
-            if (!is_wp_error($response)) {
-                $status_code = wp_remote_retrieve_response_code($response);
-                if ($status_code === 200) {
-                    $body = wp_remote_retrieve_body($response);
-                    $data = json_decode($body, true);
-                    if (isset($data['client_id'], $data['client_secret'], $data['site_id'])) {
-                        $options = get_option('nxis_ai_settings', array());
-                        $options['client_id'] = sanitize_text_field($data['client_id']);
-                        $options['client_secret'] = sanitize_text_field($data['client_secret']);
-                        $options['site_id'] = sanitize_text_field($data['site_id']);
-                        update_option('nxis_ai_settings', $options);
-                        wp_redirect(admin_url('options-general.php?page=nxis-ai&nxis_connected=1'));
-                        exit;
-                    }
-                }
-            }
-            
-            wp_redirect(admin_url('options-general.php?page=nxis-ai&nxis_error=1'));
-            exit;
-        }
-    }
-
-    /**
-     * Handle Disconnect
-     */
-    public function handle_disconnect()
-    {
-        if (isset($_GET['page']) && $_GET['page'] === 'nxis-ai' && isset($_GET['nxis_disconnect']) && isset($_GET['_wpnonce'])) {
-            if (wp_verify_nonce($_GET['_wpnonce'], 'nxis_disconnect_action')) {
-                $options = get_option('nxis_ai_settings', array());
-                unset($options['client_id']);
-                unset($options['client_secret']);
-                unset($options['site_id']);
-                update_option('nxis_ai_settings', $options);
-                
-                // clear cache
-                global $wpdb;
-                $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_nxis_ssr_%'");
-                $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_timeout_nxis_ssr_%'");
-                $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_nxis_oauth_token_%'");
-                $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_timeout_nxis_oauth_token_%'");
-                
-                wp_redirect(admin_url('options-general.php?page=nxis-ai&nxis_disconnected=1'));
-                exit;
-            }
-        }
     }
 
     /**
@@ -174,35 +77,31 @@ class Nxis_AI
             'nxis-ai'
         );
 
-        $options = get_option('nxis_ai_settings');
-        $is_connected = !empty($options['client_id']) && !empty($options['client_secret']) && !empty($options['site_id']);
-        $show_legacy = (defined('WP_DEBUG') && WP_DEBUG) || isset($_GET['nxis_legacy']);
 
-        if ($show_legacy || !$is_connected) {
-            add_settings_field(
-                'nxis_client_id',
-                'Client ID',
-                array($this, 'render_client_id_field'),
-                'nxis-ai',
-                'nxis_ai_main_section'
-            );
 
-            add_settings_field(
-                'nxis_client_secret',
-                'Client Secret',
-                array($this, 'render_client_secret_field'),
-                'nxis-ai',
-                'nxis_ai_main_section'
-            );
+        add_settings_field(
+            'nxis_client_id',
+            'Client ID',
+            array($this, 'render_client_id_field'),
+            'nxis-ai',
+            'nxis_ai_main_section'
+        );
 
-            add_settings_field(
-                'nxis_site_id',
-                'Site ID',
-                array($this, 'render_site_id_field'),
-                'nxis-ai',
-                'nxis_ai_main_section'
-            );
-        }
+        add_settings_field(
+            'nxis_client_secret',
+            'Client Secret',
+            array($this, 'render_client_secret_field'),
+            'nxis-ai',
+            'nxis_ai_main_section'
+        );
+
+        add_settings_field(
+            'nxis_site_id',
+            'Site ID',
+            array($this, 'render_site_id_field'),
+            'nxis-ai',
+            'nxis_ai_main_section'
+        );
 
 
 
@@ -277,42 +176,7 @@ class Nxis_AI
      */
     public function render_main_section()
     {
-        $options = get_option('nxis_ai_settings');
-        $is_connected = !empty($options['client_id']) && !empty($options['client_secret']) && !empty($options['site_id']);
-        $show_legacy = (defined('WP_DEBUG') && WP_DEBUG) || isset($_GET['nxis_legacy']);
-
         echo '<p>Configure your Nxis AI integration to automatically enhance your site for search engines and AI agents.</p>';
-
-        echo '<div style="margin: 20px 0; padding: 20px; background: #fff; border: 1px solid #ccd0d4; box-shadow: 0 1px 1px rgba(0,0,0,.04); border-left: 4px solid #6366f1;">';
-        if ($is_connected) {
-            echo '<h3><span style="color: #46b450;">✔</span> Connected to Nxis AI</h3>';
-            echo '<p><strong>Site ID:</strong> ' . esc_html($options['site_id']) . '</p>';
-            $disconnect_url = wp_nonce_url(admin_url('options-general.php?page=nxis-ai&nxis_disconnect=1'), 'nxis_disconnect_action');
-            echo '<a href="' . esc_url($disconnect_url) . '" class="button button-secondary" onclick="return confirm(\'Are you sure you want to disconnect? This will stop SSR data fetching.\');">Disconnect</a>';
-            if ($show_legacy) {
-                echo '<p class="description" style="margin-top:20px;"><em>Legacy inputs are still visible below because WP_DEBUG is true or nxis_legacy=1 is in the URL.</em></p>';
-            }
-        } else {
-            echo '<h3>Not Connected</h3>';
-            echo '<p>Connect your WordPress site to your Nxis App to automatically sync structured data.</p>';
-            $return_url = urlencode(admin_url('options-general.php?page=nxis-ai'));
-            $connect_url = "http://localhost:3000/callback/wordpress?return_url={$return_url}"; // using localhost for testing, change to app.nxis.io in production
-            echo '<a href="' . esc_url($connect_url) . '" class="button button-primary button-large" style="background: #6366f1; border-color: #4f46e5;">Connect to Nxis</a>';
-            if (!$show_legacy) {
-                echo '<p class="description" style="margin-top:10px;"><a href="' . esc_url(admin_url('options-general.php?page=nxis-ai&nxis_legacy=1')) . '">Enter credentials manually</a></p>';
-            }
-        }
-        echo '</div>';
-
-        if (!$show_legacy && !$is_connected) {
-            echo '<style>
-                tr:has(input[name="nxis_ai_settings[client_id]"]),
-                tr:has(input[name="nxis_ai_settings[client_secret]"]),
-                tr:has(input[name="nxis_ai_settings[site_id]"]) {
-                    display: none;
-                }
-            </style>';
-        }
     }
 
 
@@ -474,6 +338,8 @@ class Nxis_AI
         $code = wp_remote_retrieve_response_code($response);
         $body = wp_remote_retrieve_body($response);
 
+        $this->log("OAuth Token Response Code: $code, Body: $body");
+
         if ($code !== 200) {
             $this->log("OAuth Token Request Failed. Code: $code. Body: $body");
             return false;
@@ -525,6 +391,8 @@ class Nxis_AI
 
         $code = wp_remote_retrieve_response_code($response);
         $body = wp_remote_retrieve_body($response);
+
+        $this->log("SSR Fetch Response Code: $code, Body: $body");
 
         if ($code !== 200) {
             $this->log("SSR Fetch Failed. Code: $code. URI: $uri");
