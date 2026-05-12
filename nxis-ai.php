@@ -3,7 +3,7 @@
  * Plugin Name: Nxis AI
  * Plugin URI: https://nxis.ai
  * Description: Dynamically inject JSON-LD structured data into your WordPress site to enhance visibility for search engines, AI agents, and large language models (LLMs).
- * Version: 1.0.1
+ * Version: 1.0.2
  * Author: Nxis AI
  * Author URI: https://nxis.ai
  * License: GPL-2.0+
@@ -45,7 +45,7 @@ class Nxis_AI
         add_action('admin_menu', array($this, 'add_settings_page'));
         add_action('admin_init', array($this, 'register_settings'));
         add_action('wp_ajax_nxis_test_connection', array($this, 'ajax_test_connection'));
-        
+
         // Pages table hooks
         add_filter('manage_pages_columns', array($this, 'add_nxis_columns'));
         add_action('manage_pages_custom_column', array($this, 'render_nxis_column'), 10, 2);
@@ -292,38 +292,38 @@ class Nxis_AI
         }
         ?>
         <script type="text/javascript">
-        jQuery(document).ready(function($) {
-            $('.nxis-test-btn').on('click', function(e) {
-                e.preventDefault();
-                var btn = $(this);
-                var uri = btn.data('uri');
-                var originalText = btn.text();
+            jQuery(document).ready(function ($) {
+                $('.nxis-test-btn').on('click', function (e) {
+                    e.preventDefault();
+                    var btn = $(this);
+                    var uri = btn.data('uri');
+                    var originalText = btn.text();
 
-                btn.text('Testing...').prop('disabled', true);
+                    btn.text('Testing...').prop('disabled', true);
 
-                $.post(ajaxurl, {
-                    action: 'nxis_test_connection',
-                    nonce: '<?php echo wp_create_nonce("nxis_test_nonce"); ?>',
-                    uri: uri
-                }, function(response) {
-                    btn.text(originalText).prop('disabled', false);
-                    if (response.success) {
-                        console.log('Nxis SSR Response:', response.data);
-                        var reqStr = response.data.request ? "Endpoint: " + response.data.request.endpoint + "\n\n" : "";
-                        var resStr = JSON.stringify(response.data.data, null, 2).substring(0, 300) + '...';
-                        alert("Success! Data fetched.\n\n--- Request ---\n" + reqStr + "--- Response ---\n" + resStr + "\n\n(See browser console for full JSON)");
-                    } else {
-                        console.error('Nxis SSR Error:', response.data);
-                        var reqStr = response.data.request ? "Endpoint: " + response.data.request.endpoint + "\n\n" : "";
-                        var errorMsg = response.data.error || response.data;
-                        alert("Error: " + errorMsg + "\n\n--- Request ---\n" + reqStr);
-                    }
-                }).fail(function(xhr, status, error) {
-                    btn.text(originalText).prop('disabled', false);
-                    alert('AJAX Error: ' + error);
+                    $.post(ajaxurl, {
+                        action: 'nxis_test_connection',
+                        nonce: '<?php echo wp_create_nonce("nxis_test_nonce"); ?>',
+                        uri: uri
+                    }, function (response) {
+                        btn.text(originalText).prop('disabled', false);
+                        if (response.success) {
+                            console.log('Nxis SSR Response:', response.data);
+                            var reqStr = response.data.request ? "Endpoint: " + response.data.request.endpoint + "\n\n" : "";
+                            var resStr = JSON.stringify(response.data.data, null, 2).substring(0, 300) + '...';
+                            alert("Success! Data fetched.\n\n--- Request ---\n" + reqStr + "--- Response ---\n" + resStr + "\n\n(See browser console for full JSON)");
+                        } else {
+                            console.error('Nxis SSR Error:', response.data);
+                            var reqStr = response.data.request ? "Endpoint: " + response.data.request.endpoint + "\n\n" : "";
+                            var errorMsg = response.data.error || response.data;
+                            alert("Error: " + errorMsg + "\n\n--- Request ---\n" + reqStr);
+                        }
+                    }).fail(function (xhr, status, error) {
+                        btn.text(originalText).prop('disabled', false);
+                        alert('AJAX Error: ' + error);
+                    });
                 });
             });
-        });
         </script>
         <?php
     }
@@ -343,7 +343,7 @@ class Nxis_AI
                 submit_button();
                 ?>
             </form>
-            
+
             <hr style="margin-top: 30px; margin-bottom: 30px;">
             <h2>Test Connection</h2>
             <p>Test your Nxis SSR integration for a specific page. This will use your <strong>saved</strong> credentials.</p>
@@ -358,67 +358,68 @@ class Nxis_AI
                     </td>
                 </tr>
             </table>
-            <div id="nxis_test_result" style="margin-top: 15px; display: none; padding: 15px; background: #fff; border: 1px solid #ccd0d4; border-left: 4px solid #00a0d2;">
+            <div id="nxis_test_result"
+                style="margin-top: 15px; display: none; padding: 15px; background: #fff; border: 1px solid #ccd0d4; border-left: 4px solid #00a0d2;">
                 <h3 style="margin-top:0;">Response:</h3>
                 <pre id="nxis_test_output" style="white-space: pre-wrap; word-wrap: break-word;"></pre>
             </div>
         </div>
 
         <script type="text/javascript">
-        jQuery(document).ready(function($) {
-            $('#nxis_test_button').on('click', function() {
-                var uri = $('#nxis_test_uri').val();
-                if (!uri) {
-                    alert('Please enter a Page URI to test.');
-                    return;
-                }
-
-                $('#nxis_test_button').prop('disabled', true);
-                $('#nxis_test_spinner').addClass('is-active');
-                $('#nxis_test_result').hide();
-
-                $.post(ajaxurl, {
-                    action: 'nxis_test_connection',
-                    nonce: '<?php echo wp_create_nonce("nxis_test_nonce"); ?>',
-                    uri: uri
-                }, function(response) {
-                    $('#nxis_test_button').prop('disabled', false);
-                    $('#nxis_test_spinner').removeClass('is-active');
-                    $('#nxis_test_result').show();
-                    
-                    var borderColor = response.success ? '#46b450' : '#dc3232';
-                    $('#nxis_test_result').css('border-left-color', borderColor);
-                    
-                    var output = '';
-                    if (response.data) {
-                        if (response.data.request) {
-                            output += "--- Request Details ---\n";
-                            output += "Endpoint: " + response.data.request.endpoint + "\n";
-                            output += "Method: " + response.data.request.method + "\n";
-                            output += "Headers: " + JSON.stringify(response.data.request.headers, null, 2) + "\n";
-                            output += "Body: " + (response.data.request.body ? JSON.stringify(response.data.request.body, null, 2) : "None (GET request)") + "\n\n";
-                            output += "--- Response Data ---\n";
-                        }
-                        
-                        if (typeof response.data === 'string') {
-                            output += response.data;
-                        } else {
-                            var resData = Object.assign({}, response.data);
-                            delete resData.request; // remove request from the raw response view
-                            output += JSON.stringify(resData, null, 2);
-                        }
-                    } else {
-                        output = 'Unknown error occurred.';
+            jQuery(document).ready(function ($) {
+                $('#nxis_test_button').on('click', function () {
+                    var uri = $('#nxis_test_uri').val();
+                    if (!uri) {
+                        alert('Please enter a Page URI to test.');
+                        return;
                     }
-                    $('#nxis_test_output').text(output);
-                }).fail(function(xhr, status, error) {
-                    $('#nxis_test_button').prop('disabled', false);
-                    $('#nxis_test_spinner').removeClass('is-active');
-                    $('#nxis_test_result').show().css('border-left-color', '#dc3232');
-                    $('#nxis_test_output').text('AJAX Error: ' + error);
+
+                    $('#nxis_test_button').prop('disabled', true);
+                    $('#nxis_test_spinner').addClass('is-active');
+                    $('#nxis_test_result').hide();
+
+                    $.post(ajaxurl, {
+                        action: 'nxis_test_connection',
+                        nonce: '<?php echo wp_create_nonce("nxis_test_nonce"); ?>',
+                        uri: uri
+                    }, function (response) {
+                        $('#nxis_test_button').prop('disabled', false);
+                        $('#nxis_test_spinner').removeClass('is-active');
+                        $('#nxis_test_result').show();
+
+                        var borderColor = response.success ? '#46b450' : '#dc3232';
+                        $('#nxis_test_result').css('border-left-color', borderColor);
+
+                        var output = '';
+                        if (response.data) {
+                            if (response.data.request) {
+                                output += "--- Request Details ---\n";
+                                output += "Endpoint: " + response.data.request.endpoint + "\n";
+                                output += "Method: " + response.data.request.method + "\n";
+                                output += "Headers: " + JSON.stringify(response.data.request.headers, null, 2) + "\n";
+                                output += "Body: " + (response.data.request.body ? JSON.stringify(response.data.request.body, null, 2) : "None (GET request)") + "\n\n";
+                                output += "--- Response Data ---\n";
+                            }
+
+                            if (typeof response.data === 'string') {
+                                output += response.data;
+                            } else {
+                                var resData = Object.assign({}, response.data);
+                                delete resData.request; // remove request from the raw response view
+                                output += JSON.stringify(resData, null, 2);
+                            }
+                        } else {
+                            output = 'Unknown error occurred.';
+                        }
+                        $('#nxis_test_output').text(output);
+                    }).fail(function (xhr, status, error) {
+                        $('#nxis_test_button').prop('disabled', false);
+                        $('#nxis_test_spinner').removeClass('is-active');
+                        $('#nxis_test_result').show().css('border-left-color', '#dc3232');
+                        $('#nxis_test_output').text('AJAX Error: ' + error);
+                    });
                 });
             });
-        });
         </script>
         <?php
     }
@@ -476,9 +477,9 @@ class Nxis_AI
 
         $code = wp_remote_retrieve_response_code($response);
         $body = wp_remote_retrieve_body($response);
-        
+
         $decoded = json_decode($body, true);
-        
+
         $request_info = array(
             'endpoint' => $url,
             'method' => 'GET',
